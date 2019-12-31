@@ -1,0 +1,433 @@
+import telegram 
+from telegram.ext import Updater, CommandHandler, Filters 
+import sqlite3 
+import random 
+
+bot = telegram.Bot(token='[REDACTED TOKEN]') 
+updater = Updater(token='[REDACTED TOKEN]', use_context=True) 
+dispatcher = updater.dispatcher 
+
+ 
+# various connections to database to add the various points from @werewolfbot's end-game message 
+def connect_candy_corn(name, userid, candy_corn): 
+    connection = sqlite3.connect("players.db") 
+    check = connection.execute("SELECT ID FROM Player") 
+    check = check.fetchall() 
+    if (userid,) in check: 
+        current = connection.execute("SELECT CandyCorn FROM Player WHERE ID = ?", (userid,)) 
+        entry = current.fetchall() 
+        connection.execute("UPDATE Player SET CandyCorn = ? WHERE ID = ?", (entry[0][0] + candy_corn, userid)) 
+    else: 
+        connection.execute("INSERT INTO Player VALUES (?, ?, ?, ?, ?)", (name, userid, candy_corn, 0, 0)) 
+        current = connection.execute("SELECT CandyCorn FROM Player WHERE ID = ?", (userid,)) 
+        print(current.fetchall()) 
+    connection.commit() 
+    connection.close() 
+
+def connect_damage(name, userid, win, alive): 
+    connection = sqlite3.connect("players.db") 
+    check = connection.execute("SELECT ID FROM Player") 
+    check = check.fetchall() 
+    if win and alive: 
+        damage = 40 
+    elif win: 
+        damage = 20 
+    elif alive: 
+        damage = 20 
+    else: 
+        damage = 5 
+    if (userid,) in check: 
+        current = connection.execute("SELECT Damage FROM Player WHERE ID = ?", (userid,)) 
+        entry = current.fetchall() 
+        connection.execute("UPDATE Player SET Damage = ? WHERE ID = ?", (entry[0][0] + damage, userid)) 
+    else: 
+        connection.execute("INSERT INTO Player VALUES (?, ?, ?, ?, ?)", (name, userid, 0, damage, 0)) 
+        current = connection.execute("SELECT Damage FROM Player WHERE ID = ?", (userid,)) 
+    connection.commit() 
+    connection.close()  
+ 
+def connect_rune_tag(name, userid, rune_tag): 
+    connection = sqlite3.connect("players.db") 
+    check = connection.execute("SELECT ID FROM Player") 
+    check = check.fetchall() 
+    if (userid,) in check: 
+        current = connection.execute("SELECT RuneTag FROM Player WHERE ID = ?", (userid,)) 
+        entry = current.fetchall() 
+        connection.execute("UPDATE Player SET RuneTag = ? WHERE ID = ?", (entry[0][0] + rune_tag, userid)) 
+    else: 
+        connection.execute("INSERT INTO Player VALUES (?, ?, ?, ?, ?)", (name, userid, 0, 0, rune_tag)) 
+        current = connection.execute("SELECT RuneTag FROM Player WHERE ID = ?", (userid,)) 
+        print(current.fetchall()) 
+    connection.commit() 
+    connection.close()  
+  
+  
+ 
+# count the number of players who won in the game 
+def count(message): 
+    return message.split().count("Won") 
+ 
+  
+ 
+# various readings of @werewolfbot's end-game messages to add various points to database 
+def candy_corn(update, context): 
+    if update.message.chat.id == "[REDACTED CHAT ID]": 
+        og_game_message = update.message.reply_to_message.text_markdown 
+        if "Game Length:" in og_game_message: 
+            game_message = og_game_message.split("\n")[:-2] 
+            total_players = int(game_message[0].split(" ")[-1]) 
+            win_players = count(og_game_message) 
+            game_message = game_message[1:] 
+            total_candy_corn = random.randrange(total_players * 3, total_players * 5) 
+            indiv_candy_corn = total_candy_corn // win_players 
+            for player in game_message: 
+                if "](tg://user?id=" not in player: 
+                    player = player.split(": ") 
+                    name = player[0] 
+                    if "Won" in player[1]: 
+                        context.bot.send_message(chat_id=update.effective_chat.id, text="Warning: The player, " + name + ", has no visible ID. Please inform @PlaceholderUsername to update this entry manually. \nCandy corn received: " + str(indiv_candy_corn)) 
+                else: 
+                    player = player.split("](tg://user?id=") 
+                    name = player[0][1:] 
+                    userid, win = player[1].split(")") 
+                    if "Won" in win: 
+                        connect_candy_corn(name, int(userid), indiv_candy_corn) 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Updated!") 
+        else: 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Please reply to an end-game message.") 
+candy_corn_handler = CommandHandler('candy_corn', candy_corn, filters=Filters.reply) 
+dispatcher.add_handler(candy_corn_handler)  
+ 
+def damage(update, context): 
+    if update.message.chat.id == "[REDACTED CHAT ID]": 
+        og_game_message = update.message.reply_to_message.text_markdown 
+        if "Game Length:" in og_game_message: 
+            game_message = og_game_message.split("\n")[:-2] 
+            game_message = game_message[1:] 
+            for player in game_message: 
+                if "](tg://user?id=" not in player: 
+                    player = player.split(": ") 
+                    name = player[0] 
+                    context.bot.send_message(chat_id=update.effective_chat.id, text="Warning: The player, " + name + ", has no visible ID. Please inform @PlaceholderUsername to update this entry manually.") 
+                else: 
+                    player = player.split("](tg://user?id=") 
+                    name = player[0][1:] 
+                    userid, win = player[1].split(")") 
+                    if "Won" in win: 
+                        if "Alive" in win: 
+                            connect_damage(name, int(userid), True, True) 
+                        else: 
+                            connect_damage(name, int(userid), True, False) 
+                    else: 
+                        if "Alive" in win: 
+                            connect_damage(name, int(userid), False, True) 
+                        else: 
+                            connect_damage(name, int(userid), False, False) 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Updated!") 
+        else: 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Please reply to an end-game message.") 
+damage_handler = CommandHandler('damage', damage, filters=Filters.reply) 
+dispatcher.add_handler(damage_handler) 
+ 
+def rune_tag(update, context): 
+    if update.message.chat.id == "[REDACTED CHAT ID]": 
+        og_game_message = update.message.reply_to_message.text_markdown 
+        if "Game Length:" in og_game_message: 
+            game_message = og_game_message.split("\n")[:-2] 
+            total_players = int(game_message[0].split(" ")[-1]) 
+            win_players = count(og_game_message) 
+            game_message = game_message[1:] 
+            total_rune_tag = random.randrange(total_players * 3, total_players * 5) 
+            indiv_rune_tag = total_rune_tag // win_players 
+            for player in game_message: 
+                if "](tg://user?id=" not in player: 
+                    player = player.split(": ") 
+                    name = player[0] 
+                    if "Won" in player[1]: 
+                        context.bot.send_message(chat_id=update.effective_chat.id, text="Warning: The player, " + name + ", has no visible ID. Please inform @PlaceholderUsername to update this entry manually. \nRune tags received: " + str(indiv_rune_tag)) 
+                else: 
+                    player = player.split("](tg://user?id=") 
+                    name = player[0][1:] 
+                    userid, win = player[1].split(")") 
+                    if "Won" in win: 
+                        connect_rune_tag(name, int(userid), indiv_rune_tag) 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Updated!") 
+        else: 
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Please reply to an end-game message.") 
+157 rune_tag_handler = CommandHandler('rune_tag', rune_tag, filters=Filters.reply) 
+158 dispatcher.add_handler(rune_tag_handler) 
+159 
+ 
+160 
+ 
+161 
+ 
+162 # leaderboard for various scores 
+163 def candy_corn_scores(update, context): 
+164     connection = sqlite3.connect("test.db") 
+165     cursor_cc = connection.execute("SELECT Name, CandyCorn FROM Player ORDER BY CandyCorn DESC") 
+166     top_10_cc = cursor_cc.fetchall() 
+167     if len(top_10_cc) < 10: 
+168         num = len(top_10_cc) 
+169     else: 
+170         num = 10 
+171     result_cc = "*Top 10 candy corn collectors:*\n\n" 
+172     for cc in range(num): 
+173         result_cc += "*" + top_10_cc[cc][0] + "*" + ": " + str(top_10_cc[cc][1])+ "\n" 
+174     context.bot.send_message(chat_id=update.effective_chat.id, text=result_cc, parse_mode='Markdown') 
+175 candy_corn_scores_handler = CommandHandler('candy_corn_scores', candy_corn_scores) 
+176 dispatcher.add_handler(candy_corn_scores_handler) 
+177 
+ 
+178 def damage_scores(update, context): 
+179     connection = sqlite3.connect("players.db") 
+180     cursor = connection.execute("SELECT Name, Damage FROM Player ORDER BY Damage DESC") 
+181     cursor_hp = connection.execute("SELECT HP FROM Monster") 
+182     top_10 = cursor.fetchall() 
+183     monster_hp = cursor_hp.fetchall() 
+184     monster_hp = monster_hp[0][0] 
+185     if len(top_10) < 10: 
+186         num = len(top_10) 
+187     else: 
+188         num = 10 
+189     result = "_Monster's health bar:_\n" 
+190     total = 0 
+191     for value in top_10: 
+192         total += value[1] 
+193     if total >= monster_hp: 
+194         result += "░░░░░░░░░░\n\n" 
+195     elif total >= monster_hp * 0.9: 
+196         result += "█░░░░░░░░░\n\n" 
+197     elif total >= monster_hp * 0.8: 
+198         result += "██░░░░░░░░\n\n" 
+199     elif total >= monster_hp * 0.7: 
+200         result += "███░░░░░░░\n\n" 
+201     elif total >= monster_hp * 0.6: 
+202         result += "████░░░░░░\n\n" 
+203     elif total >= monster_hp * 0.5: 
+204         result += "█████░░░░░\n\n" 
+205     elif total >= monster_hp * 0.4: 
+206         result += "██████░░░░\n\n" 
+207     elif total >= monster_hp * 0.3: 
+208         result += "███████░░░\n\n" 
+209     elif total >= monster_hp * 0.2: 
+210         result += "████████░░\n\n" 
+211     elif total >= monster_hp * 0.1: 
+212         result += "█████████░\n\n" 
+213     else: 
+214         result += "██████████\n\n" 
+215     result += "*Top 10 attackers:*\n\n" 
+216     for value in range(num): 
+217         result += "*" + str(value + 1) + ". " + top_10[value][0] + "*" + ": " + str(top_10[value][1])+ "\n" 
+218     context.bot.send_message(chat_id=update.effective_chat.id, text=result, parse_mode='Markdown') 
+219 damage_scores_handler = CommandHandler('damage_scores', damage_scores) 
+220 dispatcher.add_handler(damage_scores_handler) 
+221 
+ 
+222 def rune_tag_scores(update, context): 
+223     connection = sqlite3.connect("players.db") 
+224     cursor = connection.execute("SELECT Name, RuneTag FROM Player ORDER BY RuneTag DESC") 
+225     top_10 = cursor.fetchall() 
+226     if len(top_10) < 10: 
+227         num = len(top_10) 
+228     else: 
+229         num = 10 
+230     result = "_Rune tag collection progress:_\n" 
+231     total = 0 
+232     for value in top_10: 
+233         total += value[1] 
+234     print(total) 
+235     if total < 100: 
+236         result += "░░░░░░░░░░\n\n" 
+237     elif total < 200: 
+238         result += "█░░░░░░░░░\n\n" 
+239     elif total < 300: 
+240         result += "██░░░░░░░░\n\n" 
+241     elif total < 400: 
+242         result += "███░░░░░░░\n\n" 
+243     elif total < 500: 
+244         result += "████░░░░░░\n\n" 
+245     elif total < 600: 
+246         result += "█████░░░░░\n\n" 
+247     elif total < 700: 
+248         result += "██████░░░░\n\n" 
+249     elif total < 800: 
+250         result += "███████░░░\n\n" 
+251     elif total < 900: 
+252         result += "████████░░\n\n" 
+253     elif total < 1000: 
+254         result += "█████████░\n\n" 
+255     else: 
+256         result += "██████████\n_Completed!_\n\n" 
+257     result += "*Top 10 rune tag collectors:*\n" 
+258     for value in range(num): 
+259         result += "*" + str(value + 1) + ". " + top_10[value][0] + "*" + ": " + str(top_10[value][1])+ "\n" 
+260     context.bot.send_message(chat_id=update.effective_chat.id, text=result, parse_mode='Markdown') 
+261 rune_tag_scores_handler = CommandHandler('rune_tag_scores', rune_tag_scores) 
+262 dispatcher.add_handler(rune_tag_scores_handler) 
+263 
+ 
+264 
+ 
+265 
+ 
+266 # find a player in the database and return the scores 
+267 def find(update, context): 
+268     if update.message.chat.id == "[REDACTED CHAT ID]": 
+269         text = update.message.text 
+270         text = text.split(" ") 
+271         connection = sqlite3.connect("players.db") 
+272         if len(text) == 2: 
+273             cursor = connection.execute("SELECT Name, CandyCorn, Damage, RuneTag FROM Player WHERE ID = ?", (int(text[1]),)) 
+274             results = cursor.fetchall() 
+275             if len(results) == 0: 
+276                 context.bot.send_message(chat_id=update.effective_chat.id, text="User not in database.") 
+277             else: 
+278                 context.bot.send_message(chat_id=update.effective_chat.id, text="Name: " + results[0][0] + "\nCandy corn: " + str(results[0][1]) + "\nDamage: " + str(results[0][2]) + "\nRune tags: " + str(results[0][3])) 
+279 find_handler = CommandHandler('find', find) 
+280 dispatcher.add_handler(find_handler) 
+281 
+ 
+282 
+ 
+283 
+ 
+284 # add scores manually 
+285 def add_candy_corn(update, context): 
+286     if update.message.chat.id == "[REDACTED CHAT ID]": 
+287         text = update.message.text 
+288         text = text.split(" ") 
+289         userid = int(text[-2]) 
+290         score = int(text[-1]) 
+291         name = " ".join(text[1:-2]) 
+292         connection = sqlite3.connect("players.db") 
+293         connection.execute("INSERT INTO Player VALUES (?,?,?,?,?)", (name, userid, score, 0, 0)) 
+294         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry added!") 
+295         connection.commit() 
+296         connection.close() 
+297 add_candy_corn_handler = CommandHandler('add_candy_corn', add_candy_corn) 
+298 dispatcher.add_handler(add_candy_corn_handler) 
+299 
+ 
+300 def add_damage(update, context): 
+301     if update.message.chat.id == "[REDACTED CHAT ID]": 
+302         text = update.message.text 
+303         text = text.split(" ") 
+304         userid = int(text[-2]) 
+305         score = int(text[-1]) 
+306         name = " ".join(text[1:-2]) 
+307         connection = sqlite3.connect("players.db") 
+308         connection.execute("INSERT INTO Player VALUES (?,?,?,?,?)", (name, userid, 0, score, 0)) 
+309         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry added!") 
+310         connection.commit() 
+311         connection.close() 
+312 add_damage_handler = CommandHandler('add_damage', add_damage) 
+313 dispatcher.add_handler(add_damage_handler) 
+314 
+ 
+315 def add_rune_tag(update, context): 
+316     if update.message.chat.id == "[REDACTED CHAT ID (INTEGER)]": 
+317         text = update.message.text 
+318         text = text.split(" ") 
+319         userid = int(text[-2]) 
+320         score = int(text[-1]) 
+321         name = " ".join(text[1:-2]) 
+322         connection = sqlite3.connect("players.db") 
+323         connection.execute("INSERT INTO Player VALUES (?,?,?,?,?)", (name, userid, 0, 0, score)) 
+324         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry added!") 
+325         connection.commit() 
+326         connection.close() 
+327 add_handler = CommandHandler('add_rune_tag', add_rune_tag) 
+328 dispatcher.add_handler(add_handler) 
+329 
+ 
+330 
+ 
+331 
+ 
+332 # update scores manually 
+333 def update_candy_corn(update, context): 
+334     if update.message.chat.id == "[REDACTED CHAT ID (INTEGER)]": 
+335         text = update.message.text 
+336         text = text.split(" ") 
+337         userid = int(text[-2]) 
+338         candy_corn = int(text[-1]) 
+339         connection = sqlite3.connect("players.db") 
+340         current = connection.execute("SELECT CandyCorn FROM Player WHERE ID = ?", (userid,)) 
+341         entry = current.fetchall() 
+342         connection.execute("UPDATE Player SET CandyCorn = ? WHERE ID = ?", (entry[0][0] + candy_corn, userid)) 
+343         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry updated!") 
+344         connection.commit() 
+345         connection.close() 
+346 update_candy_corn_handler = CommandHandler('update_candy_corn', update_candy_corn) 
+347 dispatcher.add_handler(update_candy_corn_handler) 
+348 
+ 
+349 def update_damage(update, context): 
+350     if update.message.chat.id == "[REDACTED CHAT ID (INTEGER)]": 
+351         text = update.message.text 
+352         text = text.split(" ") 
+353         userid = int(text[-2]) 
+354         damage = int(text[-1]) 
+355         connection = sqlite3.connect("players.db") 
+356         current = connection.execute("SELECT Damage FROM Player WHERE ID = ?", (userid,)) 
+357         entry = current.fetchall() 
+358         connection.execute("UPDATE Player SET Damage = ? WHERE ID = ?", (entry[0][0] + damage, userid)) 
+359         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry updated!") 
+360         connection.commit() 
+361         connection.close() 
+362 update_damage_handler = CommandHandler('update_damage', update_damage) 
+363 dispatcher.add_handler(update_damage_handler) 
+364 
+ 
+365 def update_rune_tag(update, context): 
+366     if update.message.chat.id == "[REDACTED CHAT ID (INTEGER)]": 
+367         text = update.message.text 
+368         text = text.split(" ") 
+369         userid = int(text[-2]) 
+370         rune_tag = int(text[-1]) 
+371         connection = sqlite3.connect("players.db") 
+372         current = connection.execute("SELECT RuneTag FROM Player WHERE ID = ?", (userid,)) 
+373         entry = current.fetchall() 
+374         connection.execute("UPDATE Player SET RuneTag = ? WHERE ID = ?", (entry[0][0] + rune_tag, userid)) 
+375         context.bot.send_message(chat_id=update.effective_chat.id, text="Entry updated!") 
+376         connection.commit() 
+377         connection.close() 
+378 update_rune_tag_handler = CommandHandler('update_rune_tag', update_rune_tag) 
+379 dispatcher.add_handler(update_rune_tag_handler) 
+380 
+ 
+381 
+ 
+382 
+ 
+383 # check the health of the monster or add/minus health points from the monster 
+384 def health(update, context): 
+385     if update.message.chat.id == -1001211150863: 
+386         text = update.message.text 
+387         text = text.split(" ") 
+388         connection = sqlite3.connect("players.db") 
+389         if len(text) == 1: 
+390             cursor = connection.execute("SELECT HP FROM Monster") 
+391             cursor_player = connection.execute("SELECT Name, Damage FROM Player ORDER BY Damage DESC") 
+392             players = cursor_player.fetchall() 
+393             total = 0 
+394             for value in players: 
+395                 total += value[1] 
+396             hp = cursor.fetchall() 
+397             hp = hp[0][0] 
+398             context.bot.send_message(chat_id=update.effective_chat.id, text="Current HP: " + str(hp - total)) 
+399         else: 
+400             cursor = connection.execute("SELECT HP FROM Monster") 
+401             hp = cursor.fetchall() 
+402             hp = hp[0][0] 
+403             new_hp = hp + int(text[1]) 
+404             connection.execute("UPDATE Monster SET HP = ? WHERE HP = ?", (new_hp, hp)) 
+405             connection.commit() 
+406             connection.close() 
+407             context.bot.send_message(chat_id=update.effective_chat.id, text="HP updated!\n\nOld HP: " + str(hp) + "\nNew HP: " + str(new_hp)) 
+408 health_handler = CommandHandler('health', health) 
+409 dispatcher.add_handler(health_handler) 
+410 
+ 
+411 updater.start_polling() 
